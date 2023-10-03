@@ -6,7 +6,7 @@ android {
     compileSdk 31
 
     defaultConfig {
-        applicationId "com.example.Chess_Mapper"
+        applicationId "com.example.PPGAuth"
         minSdk 21
         targetSdk 31
         versionCode 1

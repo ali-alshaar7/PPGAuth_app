@@ -1,4 +1,4 @@
-package com.example.Chess_Mapper;
+package com.example.PPGAuth;
 
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -9,7 +9,7 @@ import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
 import androidx.navigation.fragment.NavHostFragment;
 
-import com.example.Chess_Mapper.databinding.FragmentSecondBinding;
+import com.example.PPGAuth.databinding.FragmentSecondBinding;
 
 public class SecondFragment extends Fragment {
 

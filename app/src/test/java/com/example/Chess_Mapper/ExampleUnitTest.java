@@ -1,4 +1,4 @@
-package com.example.Chess_Mapper;
+package com.example.PPGAuth;
 
 import org.junit.Test;
 
