@@ -3,6 +3,7 @@ package com.example.PPGAuth;
 import android.os.Bundle;
 
 import com.google.android.material.snackbar.Snackbar;
+import android.content.Intent;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -54,7 +55,8 @@ public class MainActivity extends AppCompatActivity {
 
         //noinspection SimplifiableIfStatement
         if (id == R.id.action_settings) {
-            return true;
+            Intent intent = new Intent(this, SettingsActivity.class);
+            startActivity(intent);
         }
 
         return super.onOptionsItemSelected(item);
