@@ -81,6 +81,10 @@ import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothProfile;
+import android.os.Environment;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+
 
 public class MainActivity extends AppCompatActivity {
 
@@ -94,14 +98,12 @@ public class MainActivity extends AppCompatActivity {
     // GUI Components
     private GraphView graphView;
     private TextView mBluetoothStatus;
-    private TextView mReadBuffer;
     private Button mScanBtn;
     private Button mOffBtn;
     private Button mDiscoverBtn;
     private ListView mDevicesListView;
 
-    int maxIrValCapacity = 30;
-    int timeSinceRedraw = 20;
+    int maxIrValCapacity = 100;
     ArrayDeque<Integer> IrValDeque = new ArrayDeque<>(maxIrValCapacity);
 
     private BluetoothAdapter mBTAdapter;
@@ -110,9 +112,11 @@ public class MainActivity extends AppCompatActivity {
 
     private BluetoothLeService mBluetoothLeService;
 
-    private final int INTERVAL = 200; // Interval in milliseconds
+    private final int INTERVAL = 20; // Interval in milliseconds
     private Handler mHandler = new Handler();
     private Runnable mRunnable;
+
+    private static final int MY_PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE = 0;
 
 
     // #defines for identifying shared types between calling functions
@@ -131,7 +135,6 @@ public class MainActivity extends AppCompatActivity {
 
         graphView = findViewById(R.id.graph);
         mBluetoothStatus = (TextView)findViewById(R.id.bluetooth_status);
-        mReadBuffer = (TextView) findViewById(R.id.read_buffer);
         mScanBtn = (Button)findViewById(R.id.scan);
         mOffBtn = (Button)findViewById(R.id.off);
         mDiscoverBtn = (Button)findViewById(R.id.discover);
@@ -189,6 +192,47 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        if (requestCode == MY_PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Permission granted, proceed with saving data
+                saveDataToFile();
+            } else {
+                // Permission denied, handle accordingly
+                Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void saveDataToFile() {
+        try {
+            // Define the file path and name
+            String filePath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/MyApp/data.txt";
+
+            // Open a file output stream
+            FileOutputStream fileOutputStream = new FileOutputStream(filePath);
+
+            // Wrap the file output stream with an OutputStreamWriter
+            OutputStreamWriter outputStreamWriter = new OutputStreamWriter(fileOutputStream);
+
+            // Write your data to the file
+            outputStreamWriter.write("Your data here");
+
+            // Close the streams
+            outputStreamWriter.close();
+            fileOutputStream.close();
+
+            Toast.makeText(this, "Data saved to file", Toast.LENGTH_SHORT).show();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            Toast.makeText(this, "Error saving data", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+
+
     private void readDataFromSensor() {
         Log.d(TAG, "Reading from sensor = ");
         if (mBluetoothLeService != null) {
@@ -215,6 +259,15 @@ public class MainActivity extends AppCompatActivity {
             Log.d("Main: ", "start service Connection");
             mBluetoothLeService = ((BluetoothLeService.LocalBinder) service).getService();
             mBluetoothLeService.initialize(mBTAdapter);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                // Permission is not granted, request it
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                        MY_PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
+            } else {
+                // Permission already granted, proceed with saving data
+                saveDataToFile();
+            }
         }
 
         @Override
@@ -244,10 +297,7 @@ public class MainActivity extends AppCompatActivity {
                     if (IrValDeque.size() > maxIrValCapacity) {
                         IrValDeque.removeFirst();
                     }
-                    if (timeSinceRedraw == 0) {
-                        drawGraph();
-                        timeSinceRedraw = 10;
-                    } else timeSinceRedraw--;
+                    drawGraph();
                 }
             }
         }
@@ -365,8 +415,10 @@ public class MainActivity extends AppCompatActivity {
             if(BluetoothDevice.ACTION_FOUND.equals(action)){
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 // add the name to the list
-                mBTArrayAdapter.add(device.getName() + "\n" + device.getAddress());
-                mBTArrayAdapter.notifyDataSetChanged();
+                if (device.getName() != null) {
+                    mBTArrayAdapter.add(device.getName() + "\n" + device.getAddress());
+                    mBTArrayAdapter.notifyDataSetChanged();
+                }
             }
         }
     };
