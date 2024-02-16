@@ -63,6 +63,10 @@ import java.util.ArrayDeque;
 import com.jjoe64.graphview.GraphView;
 import com.jjoe64.graphview.series.DataPoint;
 import com.jjoe64.graphview.series.LineGraphSeries;
+import com.chaquo.python.PyException;
+import com.chaquo.python.PyObject;
+import com.chaquo.python.Python;
+import com.chaquo.python.android.AndroidPlatform;
 
 import android.app.Service;
 //import android.app.Activity;
@@ -81,9 +85,6 @@ import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothProfile;
-import android.os.Environment;
-import java.io.FileOutputStream;
-import java.io.OutputStreamWriter;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -116,7 +117,9 @@ public class MainActivity extends AppCompatActivity {
     private Handler mHandler = new Handler();
     private Runnable mRunnable;
 
-    private static final int MY_PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE = 0;
+    Python py;
+    PyObject module;
+
 
 
     // #defines for identifying shared types between calling functions
@@ -150,6 +153,14 @@ public class MainActivity extends AppCompatActivity {
 
         Intent gattServiceIntent = new Intent(this, BluetoothLeService.class);
         bindService(gattServiceIntent, mServiceConnection, BIND_AUTO_CREATE);
+
+        if(!Python.isStarted()){
+            Python.start(new AndroidPlatform(this));
+        }
+
+        // 2. Obtain the python instance
+        py = Python.getInstance();
+        module = py.getModule("preproc");
 
         mRunnable = new Runnable() {
             @Override
@@ -192,47 +203,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        if (requestCode == MY_PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Permission granted, proceed with saving data
-                saveDataToFile();
-            } else {
-                // Permission denied, handle accordingly
-                Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show();
-            }
-        }
-    }
-
-    private void saveDataToFile() {
-        try {
-            // Define the file path and name
-            String filePath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/MyApp/data.txt";
-
-            // Open a file output stream
-            FileOutputStream fileOutputStream = new FileOutputStream(filePath);
-
-            // Wrap the file output stream with an OutputStreamWriter
-            OutputStreamWriter outputStreamWriter = new OutputStreamWriter(fileOutputStream);
-
-            // Write your data to the file
-            outputStreamWriter.write("Your data here");
-
-            // Close the streams
-            outputStreamWriter.close();
-            fileOutputStream.close();
-
-            Toast.makeText(this, "Data saved to file", Toast.LENGTH_SHORT).show();
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            Toast.makeText(this, "Error saving data", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-
-
     private void readDataFromSensor() {
         Log.d(TAG, "Reading from sensor = ");
         if (mBluetoothLeService != null) {
@@ -259,15 +229,6 @@ public class MainActivity extends AppCompatActivity {
             Log.d("Main: ", "start service Connection");
             mBluetoothLeService = ((BluetoothLeService.LocalBinder) service).getService();
             mBluetoothLeService.initialize(mBTAdapter);
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                // Permission is not granted, request it
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                        MY_PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
-            } else {
-                // Permission already granted, proceed with saving data
-                saveDataToFile();
-            }
         }
 
         @Override
