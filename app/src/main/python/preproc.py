@@ -21,7 +21,7 @@ def get_peaks(detrended_signal):
     thresh = abs(min_sig-max_sig)/200
 
     # Find peaks in the detrended signal
-    peaks, _ = find_peaks([-sig for sig in detrended_signal], width=3, distance=25)
+    peaks, _ = find_peaks([-sig for sig in detrended_signal], width=1, distance=8)
 
     return peaks
 
@@ -45,5 +45,6 @@ def averge_interp_cycle(detrended_signal, peaks):
 
 def sig_preproc(ppg_signal):
     detrended_signal, _ = detrend(ppg_signal)
+    detrended_signal = -np.flip(detrended_signal)
     peaks = get_peaks(detrended_signal)
     return averge_interp_cycle(detrended_signal, peaks)

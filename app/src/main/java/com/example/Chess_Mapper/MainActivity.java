@@ -1,5 +1,6 @@
 package com.example.PPGAuth;
 
+import java.util.Arrays;
 import android.os.Bundle;
 import android.content.Intent;
 import androidx.appcompat.app.AppCompatActivity;
@@ -37,6 +38,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.content.ServiceConnection;
 import android.content.ComponentName;
+import android.os.Vibrator;
 
 import com.example.Chess_Mapper.BluetoothLeService;
 
@@ -51,11 +53,17 @@ import android.bluetooth.BluetoothSocket;
 import android.os.Handler;
 import android.os.SystemClock;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
 import java.util.List;
+import java.util.Collections;
+import java.util.ArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.UUID;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
@@ -86,6 +94,13 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothProfile;
 
+import org.pytorch.IValue;
+import org.pytorch.LiteModuleLoader;
+import org.pytorch.Module;
+import org.pytorch.Tensor;
+import org.pytorch.torchvision.TensorImageUtils;
+import org.pytorch.MemoryFormat;
+
 
 public class MainActivity extends AppCompatActivity {
 
@@ -99,13 +114,22 @@ public class MainActivity extends AppCompatActivity {
     // GUI Components
     private GraphView graphView;
     private TextView mBluetoothStatus;
+    private TextView mVerifyStatus;
     private Button mScanBtn;
     private Button mOffBtn;
     private Button mDiscoverBtn;
+    private Button mVerifyBtn;
+    private Button mCaptureBtn;
     private ListView mDevicesListView;
 
     int maxIrValCapacity = 100;
+    int countCycle = 100;
     ArrayDeque<Integer> IrValDeque = new ArrayDeque<>(maxIrValCapacity);
+    float[] curCycle = new float[0];
+
+    private boolean captureFlag = false;
+    private int numCaptured = 0;
+    float[][] cycleArray = new float[5][50];
 
     private BluetoothAdapter mBTAdapter;
     private Set<BluetoothDevice> mPairedDevices;
@@ -113,14 +137,13 @@ public class MainActivity extends AppCompatActivity {
 
     private BluetoothLeService mBluetoothLeService;
 
-    private final int INTERVAL = 20; // Interval in milliseconds
+    private final int INTERVAL = 10; // Interval in milliseconds
     private Handler mHandler = new Handler();
     private Runnable mRunnable;
 
     Python py;
     PyObject module;
-
-
+    Module verifModel;
 
     // #defines for identifying shared types between calling functions
     private final static int REQUEST_ENABLE_BT = 1; // used to identify adding bluetooth names
@@ -138,9 +161,12 @@ public class MainActivity extends AppCompatActivity {
 
         graphView = findViewById(R.id.graph);
         mBluetoothStatus = (TextView)findViewById(R.id.bluetooth_status);
+        mVerifyStatus = (TextView)findViewById(R.id.verification_status);
         mScanBtn = (Button)findViewById(R.id.scan);
         mOffBtn = (Button)findViewById(R.id.off);
         mDiscoverBtn = (Button)findViewById(R.id.discover);
+        mVerifyBtn = (Button)findViewById(R.id.verify);
+        mCaptureBtn = (Button)findViewById(R.id.capture);
 
         graphView.setTitle("My data");
 
@@ -161,6 +187,15 @@ public class MainActivity extends AppCompatActivity {
         // 2. Obtain the python instance
         py = Python.getInstance();
         module = py.getModule("preproc");
+
+        try {
+            String modelPath = assetFilePath(this, "droid_model.pt");
+            Log.e("PytorchHelloWorld", modelPath);
+            verifModel = LiteModuleLoader.load(modelPath);
+        } catch (IOException e) {
+            Log.e("PytorchHelloWorld", "Error reading assets", e);
+            finish();
+        }
 
         mRunnable = new Runnable() {
             @Override
@@ -200,6 +235,39 @@ public class MainActivity extends AppCompatActivity {
                     discover();
                 }
             });
+
+            mVerifyBtn.setOnClickListener(new View.OnClickListener(){
+                @Override
+                public void onClick(View v){
+                    verify();
+                }
+            });
+
+            mCaptureBtn.setOnClickListener(new View.OnClickListener(){
+                @Override
+                public void onClick(View v){
+                    capture();
+                }
+            });
+        }
+    }
+
+    public static String assetFilePath(Context context, String assetName) throws IOException {
+        File file = new File(context.getFilesDir(), assetName);
+        if (file.exists() && file.length() > 0) {
+            return file.getAbsolutePath();
+        }
+
+        try (InputStream is = context.getAssets().open(assetName)) {
+            try (OutputStream os = new FileOutputStream(file)) {
+                byte[] buffer = new byte[4 * 1024];
+                int read;
+                while ((read = is.read(buffer)) != -1) {
+                    os.write(buffer, 0, read);
+                }
+                os.flush();
+            }
+            return file.getAbsolutePath();
         }
     }
 
@@ -274,18 +342,107 @@ public class MainActivity extends AppCompatActivity {
         return intValue;
     }
 
-    public void drawGraph() {
-        if(IrValDeque.size() > 0) {
-            LineGraphSeries<DataPoint> series = new LineGraphSeries<>();
-            int i = 0;
-            for (Integer value : IrValDeque) {
-                DataPoint point = new DataPoint(i++, value);
-                series.appendData(point, true, IrValDeque.size());
-            }
-            graphView.removeAllSeries();
-            graphView.addSeries(series);
-
+    private static float findMinValue(float[] array) {
+        float min = Float.POSITIVE_INFINITY;
+        for (float value : array) {
+            min = Math.min(min, value);
         }
+        return min;
+    }
+
+    private static float findMaxValue(float[] array) {
+        float max = Float.NEGATIVE_INFINITY;
+        for (float value : array) {
+            max = Math.max(max, value);
+        }
+        return max;
+    }
+
+    public static boolean validateCycle(float[] cycle) {
+        float minValue = findMinValue(cycle);
+        float maxValue = findMaxValue(cycle);
+
+        return ((minValue > -1000 && minValue < -50) && (maxValue > 50 && maxValue < 1000));
+    }
+
+    public static Tensor floatArrayToTensor(float[] floatArray) {
+        // Create a PyTorch Tensor from the float array
+        Log.d("CHOO CHOO", "PRE INFERENCE");
+        return Tensor.fromBlob(floatArray, new long[]{floatArray.length});
+    }
+
+    public void verify() {
+
+        if (curCycle == null || curCycle.length == 0) {
+            mVerifyStatus.setText(getString(R.string.noData));
+            return;
+        }
+        Log.d("DRAWER", "verification begun");
+        Tensor cycleTensor1 = floatArrayToTensor(curCycle);
+        int avgOut = 0;
+
+        for (float[] cycleArr : cycleArray) {
+            Tensor cycleTensor2 = floatArrayToTensor(cycleArr);
+            final Tensor outputTensor = verifModel.forward(IValue.from(cycleTensor1), IValue.from(cycleTensor2)).toTensor();
+            final float[] scores = outputTensor.getDataAsFloatArray();
+            avgOut += scores[0] >= 0.5 ? 1 : 0;
+        }
+        mVerifyStatus.setText(Float.toString(avgOut >= 3));
+        Log.d("DRAWER", "verification over");
+    }
+
+    public void capture() {
+        captureFlag = true;
+        numCaptured = 0;
+    }
+
+    private void vibrate(long durationMillis) {
+        // Get the Vibrator service
+        Vibrator vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+
+        // Check if the device has a vibrator
+        if (vibrator != null && vibrator.hasVibrator()) {
+            // Vibrate for the specified duration
+            vibrator.vibrate(durationMillis);
+        }
+    }
+
+    public void drawGraph() {
+        if (countCycle != 0) {
+            countCycle--;
+            return;
+        }
+        countCycle = 100;
+
+        int[] intArray = IrValDeque.stream().mapToInt(Integer::intValue).toArray();
+        PyObject cycleObj = module.callAttr("sig_preproc", intArray);
+        if (cycleObj.toString().length() < 4) return;
+        float[] sampleCycle = cycleObj.toJava(float[].class);
+        if (!validateCycle(sampleCycle)) {
+            Log.d("InValid", Arrays.toString(sampleCycle));
+            return;
+        }
+
+        curCycle = sampleCycle;
+        if (captureFlag) {
+            cycleArray[numCaptured++] = sampleCycle;
+            if (numCaptured == 5) {
+                Toast.makeText(getApplicationContext(),getString(R.string.allCaptured),Toast.LENGTH_SHORT).show();
+                captureFlag = false;
+                vibrate(100);
+            } else Toast.makeText(getApplicationContext(),Integer.toString(numCaptured)+getString(R.string.nCaptured),Toast.LENGTH_SHORT).show();
+        }
+
+        Log.d("DRAWER", Arrays.toString(intArray));
+
+        LineGraphSeries<DataPoint> series = new LineGraphSeries<>();
+        int i = 0;
+        for (Float value : sampleCycle) {
+            DataPoint point = new DataPoint(i++, value);
+            series.appendData(point, true, sampleCycle.length);
+        }
+        graphView.removeAllSeries();
+        graphView.addSeries(series);
     }
 
     @Override
@@ -328,7 +485,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Enter here after user selects "yes" or "no" to enabling radio
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent Data){
         // Check which request we're responding to
@@ -412,28 +568,5 @@ public class MainActivity extends AppCompatActivity {
             } else mBluetoothStatus.setText(getString(R.string.BTconnFail));
         }
     };
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.menu_main, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        int id = item.getItemId();
-
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            Intent intent = new Intent(this, SettingsActivity.class);
-            startActivity(intent);
-        }
-
-        return super.onOptionsItemSelected(item);
-    }
 
 }
