@@ -20,6 +20,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.widget.Toast;
+import android.app.KeyguardManager;
 
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
@@ -72,6 +73,8 @@ public class CycleGen extends Service {
             "com.example.cyclegen.VERIFICATION_FAILED";
     public final static String VERIFICATION_SUCCESS =
             "com.example.cyclegen.VERIFICATION_SUCCESS";
+    public final static String BLUETOOTH_ON =
+            "com.example.cyclegen.BLUETOOTH_ON";
 
     public final static String NAME_DATA =
             "com.example.cyclegen.NAME_DATA";
@@ -95,8 +98,8 @@ public class CycleGen extends Service {
     private Handler mHandler = new Handler();
     private Runnable mRunnable;
 
-    private String curName;
-    private String curAddress;
+    private String curName = null;
+    private String curAddress = null;
 
     Python py;
     PyObject module;
@@ -118,8 +121,6 @@ public class CycleGen extends Service {
             // Device does not support Bluetooth
             Toast.makeText(getApplicationContext(),getString(R.string.sBTdevNF),Toast.LENGTH_SHORT).show();
         }
-
-        registerReceiver(mGattUpdateReceiver, makeGattUpdateIntentFilter());
 
         mRunnable = new Runnable() {
             @Override
@@ -189,7 +190,7 @@ public class CycleGen extends Service {
                 verify();
             } else if (MainActivity.GET_CURRENT_STATE.equals(action)) {
                 if (curName != null) broadcastUpdate(CONNECTION_SUCCESS, curName, curAddress);
-                else if (mBTAdapter.isEnabled()) broadcastUpdate(BLUETOOTH_ENABLED);
+                else if (mBTAdapter.isEnabled()) broadcastUpdate(BLUETOOTH_ON);
                 else if (!mBTAdapter.isEnabled()) broadcastUpdate(BLUETOOTH_DISABLED);
 
                 verify();
@@ -225,6 +226,26 @@ public class CycleGen extends Service {
         }
     };
 
+    // Example BroadcastReceiver for screen lock/unlock events
+    private final BroadcastReceiver ScreenReceiver = new BroadcastReceiver() {
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent.getAction().equals(Intent.ACTION_SCREEN_ON)) {
+                // Example code to disable keyguard
+                KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                if (keyguardManager.isKeyguardLocked()) {
+                    Log.d(TAG, "SCREEN LOCKED");
+                } else {
+                    Log.d(TAG, "SCREEN UNLOCKED");
+                }
+            } else if (intent.getAction().equals(Intent.ACTION_SCREEN_OFF)) {
+                Log.d(TAG, "LOCKED");
+            }
+        }
+    };
+
+
     private static IntentFilter makeGattUpdateIntentFilter() {
         final IntentFilter intentFilter = new IntentFilter();
 
@@ -245,6 +266,15 @@ public class CycleGen extends Service {
         intentFilter.addAction(MainActivity.CAPTURE_CYCLES);
         intentFilter.addAction(MainActivity.VERIFY);
         intentFilter.addAction(MainActivity.GET_CURRENT_STATE);
+        return intentFilter;
+    }
+
+    private static IntentFilter screenLockUpdateIntentFilter() {
+        final IntentFilter intentFilter = new IntentFilter();
+
+        intentFilter.addAction(Intent.ACTION_SCREEN_ON);
+        intentFilter.addAction(Intent.ACTION_SCREEN_OFF);
+
         return intentFilter;
     }
 
@@ -321,7 +351,7 @@ public class CycleGen extends Service {
     }
 
     public void verify() {
-        if (curCycle == null || curCycle.length == 0) {
+        if (curCycle == null || curCycle.length == 0 || numCaptured < 5) {
             broadcastUpdate(VERIFICATION_FAILED);
             return;
         }
@@ -329,10 +359,6 @@ public class CycleGen extends Service {
         int avgOut = 0;
 
         for (float[] cycleArr : cycleArray) {
-            if (cycleArr.length == 0) {
-                broadcastUpdate(VERIFICATION_FAILED);
-                return;
-            }
             Tensor cycleTensor2 = floatArrayToTensor(cycleArr);
             final Tensor outputTensor = verifModel.forward(IValue.from(cycleTensor1), IValue.from(cycleTensor2)).toTensor();
             final float[] scores = outputTensor.getDataAsFloatArray();
@@ -370,6 +396,8 @@ public class CycleGen extends Service {
     public void onCreate() {
         super.onCreate();
         registerReceiver(mActivityReceiver, mainActivityUpdateIntentFilter());
+        registerReceiver(mGattUpdateReceiver, makeGattUpdateIntentFilter());
+        registerReceiver(ScreenReceiver, screenLockUpdateIntentFilter());
     }
 
     @Override
@@ -379,9 +407,11 @@ public class CycleGen extends Service {
         Log.e(TAG, "DESTROYING SERVICE");
         Toast.makeText(getApplicationContext(),"Service Destroyed",Toast.LENGTH_SHORT).show();
 
-        mBluetoothLeService.disconnect();
-        mBluetoothLeService.close();
-        mHandler.removeCallbacks(mRunnable);
+        if (mBluetoothLeService == null) {
+            mBluetoothLeService.disconnect();
+            mBluetoothLeService.close();
+            mHandler.removeCallbacks(mRunnable);
+        }
         System.exit(0);
     }
 

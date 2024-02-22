@@ -172,8 +172,9 @@ public class MainActivity extends AppCompatActivity {
             if (CycleGen.BLUETOOTH_ENABLED.equals(action)) {
                 Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
                 startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
+            } else if (CycleGen.BLUETOOTH_ON.equals(action)) {
                 mBluetoothStatus.setText(getString(R.string.BTEnable));
-            } else if (CycleGen.BLUETOOTH_DISABLED.equals(action)) {
+            }  else if (CycleGen.BLUETOOTH_DISABLED.equals(action)) {
                 mBluetoothStatus.setText(getString(R.string.sBTdisabl));
             } else if (CycleGen.DEVICE_FOUND.equals(action)) {
                 String name = intent.getStringExtra(CycleGen.NAME_DATA);
@@ -246,6 +247,7 @@ public class MainActivity extends AppCompatActivity {
         intentFilter.addAction(CycleGen.NEW_CYCLE);
         intentFilter.addAction(CycleGen.VERIFICATION_FAILED);
         intentFilter.addAction(CycleGen.VERIFICATION_SUCCESS);
+        intentFilter.addAction(CycleGen.BLUETOOTH_ON);
 
         return intentFilter;
     }
