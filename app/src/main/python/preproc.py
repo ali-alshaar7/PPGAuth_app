@@ -25,7 +25,7 @@ def get_peaks(detrended_signal):
 
     return peaks
 
-def averge_interp_cycle(detrended_signal, peaks):
+def interp_cycle(detrended_signal, peaks):
 
     cycles = [detrended_signal[peaks[i]:peaks[i + 1]] for i in range(len(peaks) - 1)]
     # Number of points for the interpolated cycles
@@ -41,10 +41,23 @@ def averge_interp_cycle(detrended_signal, peaks):
         interpolated_cycle = splev(interpolated_timestamps, tck)
         interpolated_cycles.append(interpolated_cycle)
 
-    return np.mean(interpolated_cycles, axis=0)
+    return interpolated_cycles
 
 def sig_preproc(ppg_signal):
     detrended_signal, _ = detrend(ppg_signal)
     detrended_signal = -np.flip(detrended_signal)
     peaks = get_peaks(detrended_signal)
-    return averge_interp_cycle(detrended_signal, peaks)
+    cycles = interp_cycle(detrended_signal, peaks)
+    while len(cycles) < 5:
+        cycles.append([0] * 50)
+    return cycles[0:5]
+
+
+def heart_rate(ppg_signal):
+    peaks = get_peaks(ppg_signal)
+
+    # Calculate inter-beat intervals
+    ibis = np.diff(peaks)
+
+    # Calculate heart rate (beats per minute)
+    return 6 / (ibis.mean() / len(ppg_signal))

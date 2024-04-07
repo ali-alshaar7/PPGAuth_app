@@ -54,6 +54,9 @@ public class CycleGen extends Service {
 
     private BluetoothLeService mBluetoothLeService;
     private BluetoothAdapter mBTAdapter;
+    private BluetoothGattCharacteristic mGattCharacteristic;
+
+    private Intent mainIntent;
 
     public final static String BLUETOOTH_ENABLED =
             "com.example.cyclegen.BLUETOOTH_ENABLED";
@@ -75,6 +78,8 @@ public class CycleGen extends Service {
             "com.example.cyclegen.VERIFICATION_SUCCESS";
     public final static String BLUETOOTH_ON =
             "com.example.cyclegen.BLUETOOTH_ON";
+    public final static String UNLOCK =
+            "com.example.cyclegen.UNLOCK";
 
     public final static String NAME_DATA =
             "com.example.cyclegen.NAME_DATA";
@@ -82,19 +87,21 @@ public class CycleGen extends Service {
             "com.example.cyclegen.ADDRESS_DATA";
     public final static String EXTRA_DATA =
             "com.example.cyclegen.EXTRA_DATA";
-    public final static String EXTRA_FLOAT_ARRAY =
-            "com.example.cyclegen.EXTRA_FLOAT_ARRAY";
+    public final static String EXTRA_FLOAT =
+            "com.example.cyclegen.EXTRA_FLOAT";
 
     int maxIrValCapacity = 100;
     int countCycle = 100;
     ArrayDeque<Integer> IrValDeque = new ArrayDeque<>(maxIrValCapacity);
-    float[] curCycle = new float[0];
+    float[][] curCycle = new float[0][0];
 
     private boolean captureFlag = false;
     private int numCaptured = 0;
-    float[][] cycleArray = new float[5][50];
+    float[][][] cycleArray = new float[5][5][50];
+    float[] cycleRates = new float[5];
+    float curHeartRate;
 
-    private final int INTERVAL = 10; // Interval in milliseconds
+    private final int INTERVAL = 40; // Interval in milliseconds
     private Handler mHandler = new Handler();
     private Runnable mRunnable;
 
@@ -235,11 +242,20 @@ public class CycleGen extends Service {
                 // Example code to disable keyguard
                 KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
                 if (keyguardManager.isKeyguardLocked()) {
-                    Log.d(TAG, "SCREEN LOCKED");
+
+                    mainIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(mainIntent);
+
+                    boolean verified = verify();
+                    String result = (verified) ? "identity verified" : "unverified attempted access";
+                    if (verified) {
+                        broadcastUpdate(UNLOCK);
+                    }
+                    Toast.makeText(getApplicationContext(),result,Toast.LENGTH_SHORT).show();
                 } else {
                     Log.d(TAG, "SCREEN UNLOCKED");
                 }
-            } else if (intent.getAction().equals(Intent.ACTION_SCREEN_OFF)) {
+            } else if (intent.getAction().equals(Intent. ACTION_SCREEN_OFF)) {
                 Log.d(TAG, "LOCKED");
             }
         }
@@ -298,20 +314,30 @@ public class CycleGen extends Service {
 
         int[] intArray = IrValDeque.stream().mapToInt(Integer::intValue).toArray();
         PyObject cycleObj = module.callAttr("sig_preproc", intArray);
-        if (cycleObj.toString().length() < 4) return;
-        float[] sampleCycle = cycleObj.toJava(float[].class);
-        if (!validateCycle(sampleCycle)) return;
+        if (cycleObj.toString().length() < 4) {
+            curCycle = new float[0][0];
+            return;
+        }
+        float[][] sampleCycle = cycleObj.toJava(float[][].class);
+
+        if (!validateCycle(sampleCycle)) {
+            curCycle = new float[0][0];
+            return;
+        }
 
         curCycle = sampleCycle;
-        broadcastUpdate(NEW_CYCLE, sampleCycle);
+        float heartRate = module.callAttr("heart_rate", intArray).toJava(float.class);
+        broadcastUpdate(NEW_CYCLE, heartRate);
+        curHeartRate = heartRate;
 
         if (captureFlag) {
-            cycleArray[numCaptured++] = sampleCycle;
+            cycleArray[numCaptured] = sampleCycle;
+            cycleRates[numCaptured++] = heartRate;
             if (numCaptured == 5) {
                 Toast.makeText(getApplicationContext(),getString(R.string.allCaptured),Toast.LENGTH_SHORT).show();
                 captureFlag = false;
                 vibrate(100);
-            } else Toast.makeText(getApplicationContext(),Integer.toString(numCaptured)+getString(R.string.nCaptured),Toast.LENGTH_SHORT).show();
+            } else Toast.makeText(getApplicationContext(),Integer.toString(numCaptured)+" "+getString(R.string.nCaptured),Toast.LENGTH_SHORT).show();
         }
 
     }
@@ -350,22 +376,66 @@ public class CycleGen extends Service {
         }
     }
 
-    public void verify() {
+    public static float inverse(float x) {
+        if (x == 0.0) {
+            return 100000;
+        }
+        return 1 / x;
+    }
+
+    private float weightedAverageVerify(float[] scoreArr) {
+        float[] weights = new float[5];
+
+        // Calculate absolute differences in heart rates
+        float[] hrDiffs = new float[5];
+        for (int i = 0; i < 5; i++) {
+            hrDiffs[i] = Math.abs(cycleRates[i] - curHeartRate);
+        }
+
+        // Normalize heart rate differences to range [0, 1]
+        for (int i = 0; i < 5; i++) {
+            hrDiffs[i] = inverse(hrDiffs[i]);
+        }
+
+        float[] softmaxValues = new float[5];
+        float sum = 0;
+
+        for (float value : hrDiffs) {
+            sum += Math.exp(value);
+        }
+
+        float prob = 0;
+        for (int i = 0; i < 5; i++) {
+            softmaxValues[i] = (float)Math.exp(hrDiffs[i]) / sum;
+            prob = softmaxValues[i] * scoreArr[i];
+        }
+
+        return prob;
+    }
+
+    public boolean verify() {
         if (curCycle == null || curCycle.length == 0 || numCaptured < 5) {
             broadcastUpdate(VERIFICATION_FAILED);
-            return;
+            return false;
         }
-        Tensor cycleTensor1 = floatArrayToTensor(curCycle);
-        int avgOut = 0;
 
-        for (float[] cycleArr : cycleArray) {
-            Tensor cycleTensor2 = floatArrayToTensor(cycleArr);
-            final Tensor outputTensor = verifModel.forward(IValue.from(cycleTensor1), IValue.from(cycleTensor2)).toTensor();
-            final float[] scores = outputTensor.getDataAsFloatArray();
-            avgOut += scores[0] >= 0.5 ? 1 : 0;
+        float[] scoreArr = new float[125];
+        int i = 0;
+        for (float[] cyc: curCycle) {
+            Tensor cycleTensor1 = floatArrayToTensor(cyc);
+            for (float[][] cycleArr : cycleArray) {
+                for (float[] cycle: cycleArr){
+                    Tensor cycleTensor2 = floatArrayToTensor(cycle);
+                    final Tensor outputTensor = verifModel.forward(IValue.from(cycleTensor1), IValue.from(cycleTensor2)).toTensor();
+                    final float[] scores = outputTensor.getDataAsFloatArray();
+                    scoreArr[i++] = scores[0];
+                }
+            }
         }
-        broadcastUpdate(VERIFICATION_SUCCESS, Boolean.toString(avgOut >= 3));
+        float maxProb = findMaxValue(scoreArr);
+        broadcastUpdate(VERIFICATION_SUCCESS, Float.toString(maxProb));
         Log.d("DRAWER", "verification over");
+        return maxProb > 0.5;
     }
 
     private void connectDevice(String name, String address) {
@@ -425,9 +495,9 @@ public class CycleGen extends Service {
         sendBroadcast(intent);
     }
 
-    private void broadcastUpdate(final String action, float[] array) {
+    private void broadcastUpdate(final String action, float num) {
         final Intent intent = new Intent(action);
-        intent.putExtra(EXTRA_FLOAT_ARRAY, array);
+        intent.putExtra(EXTRA_FLOAT, num);
         sendBroadcast(intent);
     }
 
@@ -471,6 +541,8 @@ public class CycleGen extends Service {
         manager.createNotificationChannel(chan);
 
         Intent notificationIntent = new Intent(this, MainActivity.class);
+        if (mainIntent == null) mainIntent = notificationIntent;
+
 
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0,
                 notificationIntent, 0);
@@ -491,6 +563,11 @@ public class CycleGen extends Service {
 
     private void readDataFromSensor() {
         Log.d(TAG, "Reading from sensor = ");
+        if (mGattCharacteristic != null) {
+            mBluetoothLeService.readCharacteristic(mGattCharacteristic);
+            return;
+        }
+
         if (mBluetoothLeService != null) {
             List<BluetoothGattService> services = mBluetoothLeService.getSupportedGattServices();
             if (services == null) return;
@@ -501,6 +578,7 @@ public class CycleGen extends Service {
                 if (gattCharacteristics == null) return;
                 for (BluetoothGattCharacteristic gattCharacteristic : gattCharacteristics) {
                     if (!mBluetoothLeService.UUID_SENS_RX.equals(gattCharacteristic.getUuid())) continue;
+                    mGattCharacteristic = gattCharacteristic;
                     mBluetoothLeService.readCharacteristic(gattCharacteristic);
                 }
             }
@@ -552,10 +630,14 @@ public class CycleGen extends Service {
         return max;
     }
 
-    public static boolean validateCycle(float[] cycle) {
-        float minValue = findMinValue(cycle);
-        float maxValue = findMaxValue(cycle);
+    public static boolean validateCycle(float[][] cycles) {
+        int valid = 0;
+        for (float[] cycle: cycles) {
+            float minValue = findMinValue(cycle);
+            float maxValue = findMaxValue(cycle);
 
-        return ((minValue > -1000 && minValue < -50) && (maxValue > 50 && maxValue < 1000));
+            valid += ((minValue > -1000 && minValue < -50) && (maxValue > 50 && maxValue < 1000)) ? 1: 0;
+        }
+        return valid != 0;
     }
 }

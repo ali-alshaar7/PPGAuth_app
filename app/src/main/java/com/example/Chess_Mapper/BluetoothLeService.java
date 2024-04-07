@@ -97,7 +97,7 @@ public class BluetoothLeService extends Service{
                                          int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 broadcastUpdate(ACTION_DATA_AVAILABLE, characteristic);
-                //Log.d(TAG, "read " + new String(characteristic.getValue()));
+                Log.d(TAG, "read " + new String(characteristic.getValue()));
             }else{
                 Log.w(TAG, "onCharacteristicRead: " + status);
             }
@@ -289,13 +289,6 @@ public class BluetoothLeService extends Service{
         }
         mBluetoothGatt.setCharacteristicNotification(characteristic, enabled);
 
-        // This is specific to Heart Rate Measurement.
-        //if (UUID_BLE_RX.equals(characteristic.getUuid())) {
-        // BluetoothGattDescriptor descriptor = characteristic.getDescriptor(
-        //UUID.fromString(SampleGattAttributes.CLIENT_CHARACTERISTIC_CONFIG));
-        //descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-        //mBluetoothGatt.writeDescriptor(descriptor);
-        //}
     }
 
 

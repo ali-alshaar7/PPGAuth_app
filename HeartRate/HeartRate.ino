@@ -90,7 +90,7 @@ void loop()
       Serial.print("IR=");
       Serial.print(irValue);
       Serial.println("\n");
-      delay(10);  // Update every 10 ms
+      delay(50);  // Update every 10 ms
     }
 
     Serial.print("Disconnected from central: ");

@@ -7,16 +7,11 @@
     tools:context=".MainActivity">
 
 
-    <com.jjoe64.graphview.GraphView
-        android:id="@+id/graph"
-        android:layout_width="match_parent"
-        android:layout_marginTop="64dp"
-        android:layout_height="164dp" />
-
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:layout_marginTop="64dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -60,6 +55,31 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:text="&lt;Verification status>" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="0.1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Heart Rate:"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/heart_rate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="0.9"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="&lt;Heart Rate>" />
 
     </LinearLayout>
 

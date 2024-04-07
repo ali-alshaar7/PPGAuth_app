@@ -1,6 +1,8 @@
 package com.example.PPGAuth;
 
 import java.util.Arrays;
+
+import android.app.KeyguardManager;
 import android.os.Bundle;
 import android.content.Intent;
 import androidx.appcompat.app.AppCompatActivity;
@@ -19,39 +21,10 @@ import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
-import android.widget.Toast;
-import android.content.ServiceConnection;
-import android.content.ComponentName;
-import android.os.Vibrator;
+
 
 import com.example.Chess_Mapper.BluetoothLeService;
 import com.example.Chess_Mapper.CycleGen;
-
-import java.io.IOException;
-
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-
-import java.util.List;
-import java.util.ArrayDeque;
-
-import com.jjoe64.graphview.GraphView;
-import com.jjoe64.graphview.series.DataPoint;
-import com.jjoe64.graphview.series.LineGraphSeries;
-import com.chaquo.python.PyObject;
-import com.chaquo.python.Python;
-import com.chaquo.python.android.AndroidPlatform;
-
-import android.os.IBinder;
-import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattService;
-
-import org.pytorch.IValue;
-import org.pytorch.LiteModuleLoader;
-import org.pytorch.Module;
-import org.pytorch.Tensor;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -62,9 +35,9 @@ public class MainActivity extends AppCompatActivity {
     private ActivityMainBinding binding;
 
     // GUI Components
-    private GraphView graphView;
     private TextView mBluetoothStatus;
     private TextView mVerifyStatus;
+    private TextView mHeartRate;
     private Button mScanBtn;
     private Button mOffBtn;
     private Button mDiscoverBtn;
@@ -106,16 +79,14 @@ public class MainActivity extends AppCompatActivity {
 
         setSupportActionBar(binding.toolbar);
 
-        graphView = findViewById(R.id.graph);
         mBluetoothStatus = (TextView)findViewById(R.id.bluetooth_status);
         mVerifyStatus = (TextView)findViewById(R.id.verification_status);
+        mHeartRate = (TextView)findViewById(R.id.heart_rate);
         mScanBtn = (Button)findViewById(R.id.scan);
         mOffBtn = (Button)findViewById(R.id.off);
         mDiscoverBtn = (Button)findViewById(R.id.discover);
         mVerifyBtn = (Button)findViewById(R.id.verify);
         mCaptureBtn = (Button)findViewById(R.id.capture);
-
-        graphView.setTitle("My data");
 
         mBTArrayAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
 
@@ -190,14 +161,36 @@ public class MainActivity extends AppCompatActivity {
             } else if (CycleGen.DISCONNECTED.equals(action)) {
                 mBluetoothStatus.setText(getString(R.string.sEnabled));
             } else if (CycleGen.NEW_CYCLE.equals(action)) {
-                float[] data = (float[]) intent.getSerializableExtra(CycleGen.EXTRA_FLOAT_ARRAY);
-                Log.e(TAG, Arrays.toString(data));
-                drawGraph(data);
+                float data = (float) intent.getSerializableExtra(CycleGen.EXTRA_FLOAT);
+                mHeartRate.setText(Float.toString(data));
+                Log.e("HeartRate", Float.toString(data));
             } else if (CycleGen.VERIFICATION_FAILED.equals(action)) {
                 mVerifyStatus.setText(getString(R.string.noData));
             } else if (CycleGen.VERIFICATION_SUCCESS.equals(action)) {
                 String result = intent.getStringExtra(CycleGen.EXTRA_DATA);
                 mVerifyStatus.setText(result);
+            } else if (CycleGen.UNLOCK.equals(action)) {
+                KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                keyguardManager.requestDismissKeyguard(MainActivity.this, new KeyguardManager.KeyguardDismissCallback() {
+
+                    @Override
+                    public void onDismissError() {
+                        super.onDismissError();
+                        Log.d(TAG, "Inside onDismissError()");
+                    }
+
+                    @Override
+                    public void onDismissSucceeded() {
+                        super.onDismissSucceeded();
+                        Log.d(TAG, "Inside onDismissSucceeded()");
+                    }
+
+                    @Override
+                    public void onDismissCancelled() {
+                        super.onDismissCancelled();
+                        Log.d(TAG, "Inside onDismissCancelled()");
+                    }
+                });
             }
         }
     };
@@ -208,17 +201,6 @@ public class MainActivity extends AppCompatActivity {
 
     public void capture() {
         broadcastUpdate(CAPTURE_CYCLES);
-    }
-
-    public void drawGraph(float[] sampleCycle) {
-        LineGraphSeries<DataPoint> series = new LineGraphSeries<>();
-        int i = 0;
-        for (Float value : sampleCycle) {
-            DataPoint point = new DataPoint(i++, value);
-            series.appendData(point, true, sampleCycle.length);
-        }
-        graphView.removeAllSeries();
-        graphView.addSeries(series);
     }
 
     @Override
@@ -248,6 +230,7 @@ public class MainActivity extends AppCompatActivity {
         intentFilter.addAction(CycleGen.VERIFICATION_FAILED);
         intentFilter.addAction(CycleGen.VERIFICATION_SUCCESS);
         intentFilter.addAction(CycleGen.BLUETOOTH_ON);
+        intentFilter.addAction(CycleGen.UNLOCK);
 
         return intentFilter;
     }
